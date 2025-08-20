@@ -34,14 +34,16 @@ pipeline {
     stages {
         stage('Initialize') {
             steps {
-                wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
-                    script {
-                        echo "🚀 Starting POC2 Automation Pipeline"
-                        echo "Environment: ${ENVIRONMENT}"
-                        echo "Branch: ${env.BRANCH_NAME}"
-                        echo "Deployment Type: ${params.DEPLOYMENT_TYPE}"
-                        // Load environment configuration
-                        sh '/opt/ci-scripts/pipeline-orchestrator.sh init'
+                node {
+                    wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
+                        script {
+                            echo "🚀 Starting POC2 Automation Pipeline"
+                            echo "Environment: ${ENVIRONMENT}"
+                            echo "Branch: ${env.BRANCH_NAME}"
+                            echo "Deployment Type: ${params.DEPLOYMENT_TYPE}"
+                            // Load environment configuration
+                            sh '/opt/ci-scripts/pipeline-orchestrator.sh init'
+                        }
                     }
                 }
             }
@@ -58,13 +60,14 @@ pipeline {
                         }
                     }
                     steps {
-                        script {
-                            echo "🔍 Checking NetBox health..."
-                            sh '/opt/ci-scripts/netbox-integration.sh test'
+                        node {
+                            script {
+                                echo "🔍 Checking NetBox health..."
+                                sh '/opt/ci-scripts/netbox-integration.sh test'
+                            }
                         }
                     }
                 }
-                
                 stage('n8n Health') {
                     when {
                         anyOf {
@@ -74,9 +77,11 @@ pipeline {
                         }
                     }
                     steps {
-                        script {
-                            echo "🔍 Checking n8n health..."
-                            sh '/opt/ci-scripts/n8n-integration.sh test'
+                        node {
+                            script {
+                                echo "🔍 Checking n8n health..."
+                                sh '/opt/ci-scripts/n8n-integration.sh test'
+                            }
                         }
                     }
                 }
@@ -96,13 +101,14 @@ pipeline {
                         }
                     }
                     steps {
-                        script {
-                            echo "✅ Validating NetBox configuration..."
-                            sh '/opt/ci-scripts/netbox-integration.sh validate'
+                        node {
+                            script {
+                                echo "✅ Validating NetBox configuration..."
+                                sh '/opt/ci-scripts/netbox-integration.sh validate'
+                            }
                         }
                     }
                 }
-                
                 stage('n8n Validation') {
                     when {
                         anyOf {
@@ -111,26 +117,31 @@ pipeline {
                         }
                     }
                     steps {
-                        script {
-                            echo "✅ Validating n8n workflows..."
-                            sh '/opt/ci-scripts/n8n-integration.sh validate'
+                        node {
+                            script {
+                                echo "✅ Validating n8n workflows..."
+                                sh '/opt/ci-scripts/n8n-integration.sh validate'
+                            }
                         }
                     }
                 }
-                
                 stage('Integration Tests') {
                     when {
                         equals expected: 'full', actual: params.DEPLOYMENT_TYPE
                     }
                     steps {
-                        script {
-                            echo "🧪 Running integration tests..."
-                            sh '/opt/ci-scripts/pipeline-orchestrator.sh test'
+                        node {
+                            script {
+                                echo "🧪 Running integration tests..."
+                                sh '/opt/ci-scripts/pipeline-orchestrator.sh test'
+                            }
                         }
                     }
                     post {
                         always {
-                            publishTestResults testResultsPattern: 'reports/test-results.xml'
+                            node {
+                                publishTestResults testResultsPattern: 'reports/test-results.xml'
+                            }
                         }
                     }
                 }
@@ -142,22 +153,26 @@ pipeline {
                 expression { params.DEPLOYMENT_TYPE != 'health-check' }
             }
             steps {
-                script {
-                    echo "🏗️ Building deployment artifacts..."
-                    sh '/opt/ci-scripts/pipeline-orchestrator.sh build'
+                node {
+                    script {
+                        echo "🏗️ Building deployment artifacts..."
+                        sh '/opt/ci-scripts/pipeline-orchestrator.sh build'
+                    }
                 }
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'artifacts/**/*', fingerprint: true
-                    publishHTML([
-                        allowMissing: false,
-                        alwaysLinkToLastBuild: true,
-                        keepAll: true,
-                        reportDir: 'reports',
-                        reportFiles: '*.html',
-                        reportName: 'Deployment Report'
-                    ])
+                    node {
+                        archiveArtifacts artifacts: 'artifacts/**/*', fingerprint: true
+                        publishHTML([
+                            allowMissing: false,
+                            alwaysLinkToLastBuild: true,
+                            keepAll: true,
+                            reportDir: 'reports',
+                            reportFiles: '*.html',
+                            reportName: 'Deployment Report'
+                        ])
+                    }
                 }
             }
         }
@@ -175,13 +190,14 @@ pipeline {
                         }
                     }
                     steps {
-                        script {
-                            echo "💾 Creating NetBox backup..."
-                            sh '/opt/ci-scripts/netbox-integration.sh backup'
+                        node {
+                            script {
+                                echo "💾 Creating NetBox backup..."
+                                sh '/opt/ci-scripts/netbox-integration.sh backup'
+                            }
                         }
                     }
                 }
-                
                 stage('n8n Backup') {
                     when {
                         anyOf {
@@ -190,16 +206,20 @@ pipeline {
                         }
                     }
                     steps {
-                        script {
-                            echo "💾 Creating n8n backup..."
-                            sh '/opt/ci-scripts/n8n-integration.sh backup'
+                        node {
+                            script {
+                                echo "💾 Creating n8n backup..."
+                                sh '/opt/ci-scripts/n8n-integration.sh backup'
+                            }
                         }
                     }
                 }
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'backups/**/*', fingerprint: true
+                    node {
+                        archiveArtifacts artifacts: 'backups/**/*', fingerprint: true
+                    }
                 }
             }
         }
@@ -209,48 +229,46 @@ pipeline {
                 expression { params.DEPLOYMENT_TYPE != 'health-check' }
             }
             steps {
-                script {
-                    def deploymentApproved = true
-                    
-                    // Require manual approval for production deployments
-                    if (env.ENVIRONMENT == 'production') {
-                        deploymentApproved = false
-                        try {
-                            timeout(time: 10, unit: 'MINUTES') {
-                                input message: 'Deploy to Production?', 
-                                      ok: 'Deploy',
-                                      submitterParameter: 'APPROVED_BY'
+                node {
+                    script {
+                        def deploymentApproved = true
+                        // Require manual approval for production deployments
+                        if (env.ENVIRONMENT == 'production') {
+                            deploymentApproved = false
+                            try {
+                                timeout(time: 10, unit: 'MINUTES') {
+                                    input message: 'Deploy to Production?', 
+                                          ok: 'Deploy',
+                                          submitterParameter: 'APPROVED_BY'
+                                }
+                                deploymentApproved = true
+                            } catch (Exception e) {
+                                echo "Deployment to production was not approved or timed out"
+                                currentBuild.result = 'ABORTED'
+                                return
                             }
-                            deploymentApproved = true
-                        } catch (Exception e) {
-                            echo "Deployment to production was not approved or timed out"
-                            currentBuild.result = 'ABORTED'
-                            return
                         }
-                    }
-                    
-                    if (deploymentApproved) {
-                        echo "🚀 Starting deployment to ${ENVIRONMENT}..."
-                        
-                        parallel(
-                            'NetBox Deployment': {
-                                if (params.DEPLOYMENT_TYPE in ['full', 'netbox-only']) {
-                                    echo "📦 Deploying NetBox configurations..."
-                                    sh '/opt/ci-scripts/netbox-integration.sh deploy'
+                        if (deploymentApproved) {
+                            echo "🚀 Starting deployment to ${ENVIRONMENT}..."
+                            parallel(
+                                'NetBox Deployment': {
+                                    if (params.DEPLOYMENT_TYPE in ['full', 'netbox-only']) {
+                                        echo "📦 Deploying NetBox configurations..."
+                                        sh '/opt/ci-scripts/netbox-integration.sh deploy'
+                                    }
+                                },
+                                'n8n Deployment': {
+                                    if (params.DEPLOYMENT_TYPE in ['full', 'n8n-only']) {
+                                        echo "📦 Deploying n8n workflows..."
+                                        sh '/opt/ci-scripts/n8n-integration.sh deploy'
+                                    }
                                 }
-                            },
-                            'n8n Deployment': {
-                                if (params.DEPLOYMENT_TYPE in ['full', 'n8n-only']) {
-                                    echo "📦 Deploying n8n workflows..."
-                                    sh '/opt/ci-scripts/n8n-integration.sh deploy'
-                                }
+                            )
+                            // Synchronize NetBox with n8n if full deployment
+                            if (params.DEPLOYMENT_TYPE == 'full') {
+                                echo "🔄 Synchronizing NetBox with n8n..."
+                                sh '/opt/ci-scripts/netbox-integration.sh sync'
                             }
-                        )
-                        
-                        // Synchronize NetBox with n8n if full deployment
-                        if (params.DEPLOYMENT_TYPE == 'full') {
-                            echo "🔄 Synchronizing NetBox with n8n..."
-                            sh '/opt/ci-scripts/netbox-integration.sh sync'
                         }
                     }
                 }
@@ -262,32 +280,35 @@ pipeline {
                 expression { params.DEPLOYMENT_TYPE != 'health-check' }
             }
             steps {
-                script {
-                    echo "🔍 Running post-deployment verification..."
-                    sleep 10  // Wait for services to stabilize
-                    
-                    parallel(
-                        'Verify NetBox': {
-                            if (params.DEPLOYMENT_TYPE in ['full', 'netbox-only']) {
-                                sh '/opt/ci-scripts/netbox-integration.sh test'
+                node {
+                    script {
+                        echo "🔍 Running post-deployment verification..."
+                        sleep 10  // Wait for services to stabilize
+                        parallel(
+                            'Verify NetBox': {
+                                if (params.DEPLOYMENT_TYPE in ['full', 'netbox-only']) {
+                                    sh '/opt/ci-scripts/netbox-integration.sh test'
+                                }
+                            },
+                            'Verify n8n': {
+                                if (params.DEPLOYMENT_TYPE in ['full', 'n8n-only']) {
+                                    sh '/opt/ci-scripts/n8n-integration.sh test'
+                                }
                             }
-                        },
-                        'Verify n8n': {
-                            if (params.DEPLOYMENT_TYPE in ['full', 'n8n-only']) {
-                                sh '/opt/ci-scripts/n8n-integration.sh test'
-                            }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }
         
         stage('Cleanup') {
             steps {
-                wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
-                    script {
-                        echo "🧹 Running cleanup tasks..."
-                        sh '/opt/ci-scripts/pipeline-orchestrator.sh cleanup'
+                node {
+                    wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
+                        script {
+                            echo "🧹 Running cleanup tasks..."
+                            sh '/opt/ci-scripts/pipeline-orchestrator.sh cleanup'
+                        }
                     }
                 }
             }
@@ -296,15 +317,15 @@ pipeline {
     
     post {
         always {
-            script {
-                def status = currentBuild.result ?: 'SUCCESS'
-                def color = status == 'SUCCESS' ? 'good' : 'danger'
-                def emoji = status == 'SUCCESS' ? '✅' : '❌'
-                
-                echo "${emoji} Pipeline ${status}: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
-                
-                // Archive logs and reports
-                archiveArtifacts artifacts: 'logs/**/*', allowEmptyArchive: true
+            node {
+                script {
+                    def status = currentBuild.result ?: 'SUCCESS'
+                    def color = status == 'SUCCESS' ? 'good' : 'danger'
+                    def emoji = status == 'SUCCESS' ? '✅' : '❌'
+                    echo "${emoji} Pipeline ${status}: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+                    // Archive logs and reports
+                    archiveArtifacts artifacts: 'logs/**/*', allowEmptyArchive: true
+                }
             }
         }
         
