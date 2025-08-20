@@ -29,20 +29,20 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr: '10', artifactNumToKeepStr: '5'))
         timeout(time: 30, unit: 'MINUTES')
         timestamps()
-        ansiColor('xterm')
     }
     
     stages {
         stage('Initialize') {
             steps {
-                script {
-                    echo "🚀 Starting POC2 Automation Pipeline"
-                    echo "Environment: ${ENVIRONMENT}"
-                    echo "Branch: ${env.BRANCH_NAME}"
-                    echo "Deployment Type: ${params.DEPLOYMENT_TYPE}"
-                    
-                    // Load environment configuration
-                    sh '/opt/ci-scripts/pipeline-orchestrator.sh init'
+                wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
+                    script {
+                        echo "🚀 Starting POC2 Automation Pipeline"
+                        echo "Environment: ${ENVIRONMENT}"
+                        echo "Branch: ${env.BRANCH_NAME}"
+                        echo "Deployment Type: ${params.DEPLOYMENT_TYPE}"
+                        // Load environment configuration
+                        sh '/opt/ci-scripts/pipeline-orchestrator.sh init'
+                    }
                 }
             }
         }
@@ -85,8 +85,7 @@ pipeline {
         
         stage('Validation & Testing') {
             when {
-                not { params.SKIP_TESTS }
-                not { equals expected: 'health-check', actual: params.DEPLOYMENT_TYPE }
+                expression { !params.SKIP_TESTS && params.DEPLOYMENT_TYPE != 'health-check' }
             }
             parallel {
                 stage('NetBox Validation') {
@@ -140,7 +139,7 @@ pipeline {
         
         stage('Build Artifacts') {
             when {
-                not { equals expected: 'health-check', actual: params.DEPLOYMENT_TYPE }
+                expression { params.DEPLOYMENT_TYPE != 'health-check' }
             }
             steps {
                 script {
@@ -165,14 +164,7 @@ pipeline {
         
         stage('Backup') {
             when {
-                allOf {
-                    params.CREATE_BACKUP
-                    not { equals expected: 'health-check', actual: params.DEPLOYMENT_TYPE }
-                    anyOf {
-                        environment name: 'ENVIRONMENT', value: 'staging'
-                        environment name: 'ENVIRONMENT', value: 'production'
-                    }
-                }
+                expression { params.CREATE_BACKUP && params.DEPLOYMENT_TYPE != 'health-check' && (env.ENVIRONMENT == 'staging' || env.ENVIRONMENT == 'production') }
             }
             parallel {
                 stage('NetBox Backup') {
@@ -214,7 +206,7 @@ pipeline {
         
         stage('Deploy') {
             when {
-                not { equals expected: 'health-check', actual: params.DEPLOYMENT_TYPE }
+                expression { params.DEPLOYMENT_TYPE != 'health-check' }
             }
             steps {
                 script {
@@ -267,7 +259,7 @@ pipeline {
         
         stage('Post-Deployment Verification') {
             when {
-                not { equals expected: 'health-check', actual: params.DEPLOYMENT_TYPE }
+                expression { params.DEPLOYMENT_TYPE != 'health-check' }
             }
             steps {
                 script {
@@ -292,9 +284,11 @@ pipeline {
         
         stage('Cleanup') {
             steps {
-                script {
-                    echo "🧹 Running cleanup tasks..."
-                    sh '/opt/ci-scripts/pipeline-orchestrator.sh cleanup'
+                wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
+                    script {
+                        echo "🧹 Running cleanup tasks..."
+                        sh '/opt/ci-scripts/pipeline-orchestrator.sh cleanup'
+                    }
                 }
             }
         }
